@@ -1,0 +1,36 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link href="/Users/abhishek/softwares/js_libs/nvd3/src/nv.d3.css" rel="stylesheet">
+<script src="/Users/abhishek/softwares/js_libs/d3/d3.min.js"></script>
+<script src="/Users/abhishek/softwares/js_libs/nvd3/nv.d3.min.js"></script>
+
+</head>
+<body>
+
+<div id="pieChart"><svg style="width:450px;height:450px;"></svg></div>
+
+
+<script>
+    nv.addGraph(function() {
+        var chart = nv.models.pieChart();
+        chart.x(function(d) { return d.label })
+            .y(function(d) { return d.value });
+        chart.width(450);
+        chart.height(450);
+
+        chart.showLegend(true);
+        chart.showLabels(true);
+        d3.select('#pieChart svg')
+            .datum(data_pieChart[0].values)
+            .transition().duration(500)
+            .attr('width', 450)
+.attr('height', 450)
+            .call(chart);
+
+    return chart;
+});data_pieChart=[{"values": [{"value": 3, "label": "Orange"}, {"value": 4, "label": "Banana"}, {"value": 0, "label": "Pear"}, {"value": 1, "label": "Kiwi"}, {"value": 5, "label": "Apple"}, {"value": 7, "label": "Strawberry"}, {"value": 3, "label": "Pineapple"}], "key": "Serie 1"}];
+</script>
+
+</body>

@@ -1,0 +1,153 @@
+import synapseclient
+import os
+from synapseclient import File, Folder
+
+STORE = True
+TOPHAT_ID = 'syn2243144'
+TOPHAT_VER = 1
+
+CUFFLINKS_ID = 'syn2243146'
+CUFFLINKS_VER = 1
+
+BAM_ID = 'syn1773111'
+FASTQ_ID = 'syn1773112'
+UNMAPPEDBAM_ID = 'syn2246519'
+BED_ID = 'syn2246520'
+EXPR_ID = 'syn2246521'
+SCRIPTS_ID = 'syn2246673'
+
+bamDir = '/external-data/DAT_114__PCBC_Data/mRNA/bam2'
+fastqDir = '/external-data/DAT_114__PCBC_Data/mRNA/fastq'
+tophatDir = '/external-data/DAT_114__PCBC_Data/mRNA/tophat2'
+bedDir = '/external-data/DAT_114__PCBC_Data/mRNA/bed2'
+cufflinksDir = '/external-data/DAT_114__PCBC_Data/mRNA/gencode3'
+
+def readAlignSummary(fileName):
+    with open(fileName) as f:
+        f.readline()  #removes first line
+        numberReads = int(f.readline().split(':')[1])
+        mappedReads = int(f.readline().split(':')[1].split('(')[0])
+        f.readline()
+        percentMapped = f.readline().split('%')[0]+'%'
+    return numberReads, mappedReads, percentMapped
+
+syn = synapseclient.Synapse()
+syn.login()
+
+
+#Store the input scripts:
+tophatScript = syn.store(File(os.path.join(tophatDir, 'run_samp.sh'), name='tophat script', parent=SCRIPTS_ID), forceVersion=False)
+tophat = syn.get(TOPHAT_ID, version=TOPHAT_VER)
+
+bedScript = syn.store(File(os.path.join(bedDir, 'get_coverage.sh'), name='getCoverage script', parent=SCRIPTS_ID), forceVersion=False)
+
+exprScript = syn.store(File(os.path.join(cufflinksDir, 'run_samp.sh'), name='cufflinks script', parent=SCRIPTS_ID), forceVersion=False)
+cufflinks = syn.get(CUFFLINKS_ID, verssion=CUFFLINKS_VER)
+
+exprMergeScript = syn.store(File(os.path.join(cufflinksDir, 'extract_sig.sh'), name='merge Expression script', parent=SCRIPTS_ID), forceVersion=False)
+
+
+for line in open('all_samples.txt').readlines():
+    fastqFile, sample = line.strip().split()
+    print sample
+
+    #Meta information
+    sampleName, run, lane, index = sample.split('.')
+    nReads, mReads, pMapped = readAlignSummary(os.path.join(tophatDir, sample, 'align_summary.txt'))
+    meta = {'sampleName':sample, 'run': run, 'lane':lane, 
+            'index': index, 'numberReads': nReads, 'dataType':'mRNA',
+            'mappedReads': mReads, 'percentMapped': pMapped}
+
+    ################################
+    ##Uploading files to Synapse
+    ################################
+    #Input file
+    fastqFile = File(os.path.join(fastqDir, fastqFile), parent=FASTQ_ID, 
+                     name=sample+'.fastq', synapseStore=False)
+    fastqFile['sampleName']=sampleName
+    fastqFile['run']=run
+    fastqFile['lane']=lane
+    fastqFile['index']=index,
+    fastqFile['fileType']='fastq'
+    fastqFile = syn.store(fastqFile, forceVersion=False)
+
+    ##Output from tophat  #Executed tophat + script used fastqFile
+    meta['fileType']='bam'
+    meta['bamType']='mapped'
+    bamFile = syn.store(File(os.path.join(bamDir, sample+'.bam'), parent=BAM_ID, 
+                             annotations=meta, synapseStore=STORE), 
+                        used=[fastqFile], executed=[tophat, tophatScript], forceVersion=False)
+
+    meta['fileType']='bam'
+    meta['bamType']='unmapped'
+    unmapped = syn.store(File(os.path.join(tophatDir, sample, 'unmapped.bam'), 
+                              parent=UNMAPPEDBAM_ID, name=sample+'_unmapped.bam',  annotations=meta, 
+                              synapseStore=STORE), 
+                         used=[fastqFile], executed=[tophat, tophatScript], forceVersion=False)
+
+    meta['fileType']='bed'
+    del meta['bamType']
+    meta['bedType']='deletions'
+    deletions = syn.store(File(os.path.join(tophatDir, sample, 'deletions.bed'),
+                               parent=BED_ID, name=sample+'_deletions.bed', 
+                               annotations=meta, synapseStore=STORE),
+                          used=[fastqFile], executed=[tophat, tophatScript], forceVersion=False)
+
+    meta['fileType']='bed'
+    meta['bedType']='insertions'
+    insertions = syn.store(File(os.path.join(tophatDir, sample, 'insertions.bed'),
+                               parent=BED_ID, name=sample+'_insertions.bed',
+                               annotations=meta, synapseStore=STORE),
+                           used=[fastqFile], executed=[tophat, tophatScript], forceVersion=False)
+
+    meta['fileType']='bed'
+    meta['bedType']='junctions'
+    junctions = syn.store(File(os.path.join(tophatDir, sample, 'junctions.bed'),
+                               parent=BED_ID, name=sample+'_junctions.bed',
+                               annotations=meta, synapseStore=STORE),
+                          used=[fastqFile], executed=[tophat, tophatScript], forceVersion=False)
+
+    #Second Stage output # used=bamFile, executed=bed2/get_coverage.sh
+    meta['fileType']='bed'
+    meta['bedType']='exons'
+    bedFile = syn.store(File(os.path.join(bedDir, sample+'__exon.bed'),
+                             parent=BED_ID, name=sample+'__exon.bed',
+                             annotations=meta, synapseStore=STORE),
+                        used=[bamFile], executed=[bedScript], forceVersion=False)
+
+    #Alignment  #executed cufflinks, gencode3/run_samp.sh, used bamFile
+    meta['fileType']='fpkm'
+    del meta['bedType']
+    genesFile = syn.store(File(os.path.join(cufflinksDir, sample, 'genes.fpkm_tracking'),
+                               parent=EXPR_ID, name=sample+'_genes.fpkm_tracking',
+                               annotations=meta, synapseStore=STORE),              
+                          used=[bamFile, 'ftp://ftp.sanger.ac.uk/pub/gencode/release_17/gencode.v17.annotation.gtf.gz'], 
+                          executed=[cufflinks, exprScript], forceVersion=False)
+
+    meta['fileType']='fpkm'
+    isoFormFile = syn.store(File(os.path.join(cufflinksDir, sample, 'isoforms.fpkm_tracking'),
+                                 parent=EXPR_ID, name=sample+'_isoform.fpkm_tracking',
+                                 synapseStore=STORE,  annotations=meta),
+                            used=[bamFile, 'ftp://ftp.sanger.ac.uk/pub/gencode/release_17/gencode.v17.annotation.gtf.gz'], 
+                            executed=[cufflinks, exprScript], forceVersion=False)
+
+    meta['fileType']='gtf'
+    skippedFile = os.path.join(cufflinksDir, sample, 'skipped.gtf')
+    if os.stat(skippedFile).st_size>0:  #Make sure we are not trying to push an empty file
+        skippedFile = syn.store(File(skippedFile, parent=EXPR_ID, name=sample+'_skipped.gtf',
+                                     annotations=meta, synapseStore=STORE),
+                                used=[bamFile, 'ftp://ftp.sanger.ac.uk/pub/gencode/release_17/gencode.v17.annotation.gtf.gz'], 
+                                executed=[cufflinks, exprScript], forceVersion=False)
+
+
+
+
+
+
+###########################
+#Set Provenance on summary files
+###########################
+# ids = ['syn2247799', 'syn1968267']  #ids of summarized data
+# activity = synapseclient.Activity(name='Concatenation', description='Concatenates indivudal genes.fpkm_tracking files', used = ['syn2246521'], executed=[exprMergeScript])
+# for id in ids:
+#     syn.setProvenance(id, activity)
