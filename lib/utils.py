@@ -8,6 +8,7 @@ import re
 import os
 import pwd
 import collections
+import inspect
 
 
 def get_FilesList(path,pattern=None):
@@ -66,12 +67,9 @@ def _get_logger(logfile,dual_mode=True,logger_name=None):
     console_output.setFormatter(formatter)
     # add the handler to the root logger
     logging.getLogger('').addHandler(console_output)
-    
     logger = logging.getLogger(logger_name)
     
     return logger
-
-
 
 
 
