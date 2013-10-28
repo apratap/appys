@@ -37,7 +37,6 @@ def index_bam(bamFile):
     produce a index file for the bam (bamFile.fai)
     """
     SUB = 'index_bam'
-    
     bamFile_bai = bamFile + '.bai'
     if os.path.exists(bamFile_bai):
         print '[%s]: Bam file %s already indexed ' % (SUB,bamFile)
@@ -57,7 +56,6 @@ def name_sort_bam(bamFile,out_q=None):
     produce a sorted bam file for the bam (bamFile)
     """
     SUB = 'name_sort_bam'
-    
     bamFile_name_sorted_preifx = bamFile.replace('.bam','_name_sorted')
     bamFile_name_sorted        = bamFile_name_sorted_preifx + '.bam'
     if os.path.exists(bamFile_name_sorted):
@@ -87,7 +85,6 @@ def coordinate_sort_bam(bamFile):
     produce a coordinate sorted bam file
     """
     SUB = 'coordinate_sort_bam'
-    
     bamFile_coordinate_sorted_preifx = bamFile.replace('.bam','_cord_sorted')
     bamFile_coordinate_sorted        = bamFile_coordinate_sorted_preifx + '.bam'
     if os.path.exists(bamFile_coordinate_sorted):
@@ -117,11 +114,9 @@ def get_coverage_of_a_bam_file(bamFile,chr=None):
     bamFile_bai = bamFile + '.bai'
     if not os.path.exists(bamFile_bai):
         bamUtils.index_bam(bamFile)
-    
     base_path = os.path.dirname(bamFile) or '.'
     bamFile_name = os.path.basename(bamFile)
     bamFile_handle = pysam.Samfile(bamFile,'rb')
-    
     if chr is None:
         references = bamFile_handle.references
     else:
@@ -187,7 +182,8 @@ def bam_to_bedGraph(bamFile,chrSizeFile=None):
     out_bedgraphFile = base_path + '/' + bamFile_name.replace('.bam','') + '.bedgraph'
     
     #constructing genome size file on the fly from bam file
-    bam_fh,bam_prefix = get_apt_file_handle_for_mapped_file(bamFile)
+    bam_fh = get_mappedFile_FH(bamFile)
+    bam_prefix = get_mappedFile_prefix(bamFile)
     
     temp_fh = tempfile.NamedTemporaryFile(mode='w+t') #when delete is True file is deleted as soon as it closed
     [temp_fh.write('%s\t%s\n' % (chr,len)) for chr,len in itertools.izip(bam_fh.references,bam_fh.lengths) ]
@@ -213,7 +209,8 @@ def create_detailed_insert_size_plot(bamFile):
     #get the dual logger
     logging = utils._get_logger(out_insertSize_logFile,logger_name = __name__)
     
-    (bamfile_handle,bamfile_prefix) = get_apt_file_handle_for_mapped_file(namesorted_bamFile)
+    bamfile_handle = get_mappedFile_FH(namesorted_bamFile)
+    bamfile_prefix = get_mappedFile_prefix(namesorted_bamFile)
 
     bag = collections.Counter()
     insert_size_bag = collections.defaultdict(list)
@@ -255,44 +252,36 @@ def create_detailed_insert_size_plot(bamFile):
     return out_insertSize_plotFile
 
 
+
+
 def remove_low_coverage_reads(bamFile,min_coverage=4):
-    
     SUB = 'remove_low_coverage_reads'
     
     bamFile_bai = bamFile + '.bai'
     if not os.path.exists(bamFile_bai):
         bamUtils.index_bam(bamFile)
-    
     base_path = os.path.dirname(bamFile) or '.'
     bamFile_name = os.path.basename(bamFile)
     bamFile_handle = pysam.Samfile(bamFile,'rb')
     references = bamFile_handle.references
     out_bamFile = base_path + '/' + bamFile_name.replace('.bam','') + '_mincov_'+str(min_coverage)+'.bam'
-    
     if os.path.exists(out_bamFile):
         print '[%s]: Expected output %s already present no processing required' % (SUB,out_bamFile)
         return out_bamFile
-    
     out_bamFile_handle = pysam.Samfile(out_bamFile,'wb',template=bamFile_handle)
-
-    
     count_num_reads_low_coverage = 0;
     for chromosome in references:
         low_coverage_read_headers = {}
-        
         for pileupcol in bamFile_handle.pileup(chromosome):
            if pileupcol.n < min_coverage and pileupcol.n > 0:
                 for read in pileupcol.pileups:
                     low_coverage_read_headers[read.alignment.qname] = 1
-                
-        
         for read in bamFile_handle.fetch(chromosome):
             if ( low_coverage_read_headers.get(read.qname,'None') == 'None'):
                 out_bamFile_handle.write(read)
             else:
                 count_num_reads_low_coverage += 1
     
-        
     print '[%s]: Wrote file %s, found and skipped %d low coverage reads' % (SUB,os.path.basename(out_bamFile), count_num_reads_low_coverage)
     return out_bamFile
 
@@ -302,7 +291,6 @@ def generate_read_count_per_chr_per_bam(bam_files):
     given a list of bamfiles generate a pandas dataframe of 
     read count per reference in the bamfile and the strand
     '''
-    
     SUB = 'generate_read_count_per_chr_per_bam'
     
     class AutoVivification(dict):
@@ -459,21 +447,26 @@ def get_mapped_read_count(bam, force=False):
     return readcount
 
 
-
-def bam_to_bigWig(bam,scale=False):
+def bam_to_bigWig(bamFile,scale=False):
+    """
+    For a given bam file
+    create a bigWig File
+    """
     base_path = os.path.dirname(bamFile) or '.'
     bamFile_name = os.path.basename(bamFile)
     out_bigWig_file = base_path + '/' + bamFile_name.replace('.bam','') + '.bw'
     
     #constructing genome size file on the fly from bam file
-    bam_fh,bam_prefix = bamUtils.get_apt_file_handle_for_mapped_file(bamFile)
+    bam_fh  = get_mappedFile_FH(bamFile)
+    bam_prefix = get_mappedFile_prefix(bamFile)
     
     temp_genome_file = tempfile.NamedTemporaryFile(mode='w+t',suffix='.tmp', delete=False) #when delete is True file is deleted as soon as it closed
     [temp_genome_file.write('%s\t%s\n' % (chr,len)) for chr,len in itertools.izip(bam_fh.references,bam_fh.lengths) ]
     temp_genome_file.close()
-    
+
+    #scale the read counts if asked
     if scale:
-        readcount = bamUtils.get_mapped_read_count(bam)
+        readcount = get_mapped_read_count(bamFile)
         _scale = 1 / (readcount / 1e6)
         
     
@@ -488,11 +481,7 @@ def bam_to_bigWig(bam,scale=False):
     
     if not stderr:
         print 'Created a bigWig file %s for %s' % (os.path.basename(out_bigWig_file),
-                                                   os.path.basename(bam))
-
-
-
-
+                                                   os.path.basename(bamFile))
 
 
 
@@ -647,23 +636,127 @@ def get_strand_for_RNA_Seq_read(read,lib_protocol):
     
         
     
-    
-    
-    
-def get_apt_file_handle_for_mapped_file(mapped_file,mode='r'):
+def get_mappedFile_FH(mapped_file,mode='r'):
     """
     get apt file handle for reading sam / bam file
     """
-    SUB='get_apt_file_handle_for_mapped_file'
+    SUB='get_mappedFile_FH'
     
     if mapped_file.endswith('.bam'):
         file_handle = pysam.Samfile(mapped_file,('%sb' % mode))
-        file_prefix=os.path.basename(mapped_file).replace('.bam','')
-        return (file_handle,file_prefix)
+        return (file_handle)
     elif mapped_file.endswith('.sam'):
         file_handle = pysam.Samfile(mapped_file,('%s' % mode))
-        file_prefix=os.path.basename(mapped_file).replace('.sam','')
-        return (file_handle,file_prefix)
+        return (file_handle)
+    else:
+        print '[%s]: cant understand the file extension..tried looking for .sam  and .bam' % SUB
+
+#bam summary
+
+import collections
+import yaml
+
+
+def get_bamStats(bamFile,**kwargs):
+    '''
+    generate bamStats from a sam/bam file and save the same 
+    secondary mapped reads are counted separately
+    '''
+    #stats that will be recorded
+    bamStats = { 'bamFile': bamFile,
+                 'reads' : 0,
+                 'read1' : 0,
+                 'read2' : 0,
+                 'read2' : 0,
+                 'mapped' : 0,
+                 'secondary_mapped' : 0,
+                 'unmapped' : 0,
+                 'mapped_read1' : 0,
+                 'mapped_read2' : 0,
+                 'secondary_mapped_read1' : 0,
+                 'secondary_mapped_read2' : 0,
+                 'unmapped_read1': 0,
+                 'unmapped_read2': 0
+                 }
+    
+    #stats to be saved with the following file name
+    bamStats_file = get_mappedFile_prefix(bamFile) + '.bamStats'
+    
+    #user supplied args if any
+    force = kwargs.get('force',False)
+    #check is pre-computed stats exist
+    if os.path.exists(bamStats_file) and force == False:
+        #read the stats from the file and return
+        bamStats = yaml.load(open(bamStats_file,'r'))
+        return bamStats
+    else:
+        #do the read counting and save the stats
+        #open the bam file for reading
+        bam_fh = get_mappedFile_FH(bamFile)
+        #start the timer
+        start = time.clock()
+        loop_start = time.clock()
+        for count,read in enumerate(bam_fh):
+            if count % 1000000 == 0 and count > 0:
+                time_taken = time.clock() - start
+                total_time_taken = time.clock() - loop_start
+                print 'Processed 1,000,000 reads in %0.2f seconds total_reads: %d in %0.2f seconds' % (time_taken,count,total_time_taken)
+                start = time.clock()
+            
+            
+            #check if unmapped reads
+            if read.is_unmapped:
+                bamStats['unmapped'] += 1
+                if read.is_read1:
+                    bamStats['unmapped_read1'] += 1
+                elif read.is_read2:
+                    bamStats['unmapped_read2'] += 1
+                #count raw reads
+                bamStats['reads'] += 1
+                if read.is_read1:
+                    bamStats['read1'] += 1
+                if read.is_read2:
+                    bamStats['read2'] += 1
+                continue
+            else: 
+                #check for multi mapped reads first up and keep a separate counter for them
+                if read.is_secondary:
+                    bamStats['secondary_mapped'] += 1
+                    if read.is_read1:
+                        bamStats['secondary_mapped_read1'] += 1
+                    elif read.is_read2:
+                        bamStats['secondary_mapped_read2'] += 1
+                    # skip counting this read further
+                    continue
+                else:
+                    bamStats['mapped'] += 1
+                    if read.is_read1:
+                        bamStats['mapped_read1'] += 1
+                    elif read.is_read2:
+                        bamStats['mapped_read2'] += 1
+                    
+        #save the stats in a YAML format
+        with open(bamStats_file,'w') as fh:
+            fh.write(yaml.dump(bamStats, default_flow_style=False))
+        print 'Wrote %s file' % bamStats_file
+        return (bamStats)
+
+
+def get_mappedFile_prefix(mapped_file,mode='r'):
+    """
+    get prefix for a sam/bam file
+    """
+    SUB='get_mappedFile_prefix'
+    
+    dirname = os.path.dirname(mapped_file)
+    if dirname == "": ##fix when script is run from the same dir where the file is
+        dirname = '.'
+    if mapped_file.endswith('.bam'):
+        file_prefix = dirname + '/' +  os.path.basename(mapped_file).replace('.bam','')
+        return (file_prefix)
+    elif mapped_file.endswith('.sam'):
+        file_prefix = dirname + '/' + os.path.basename(mapped_file).replace('.sam','')
+        return (file_prefix)
     else:
         print '[%s]: cant understand the file extension..tried looking for .sam  and .bam' % SUB
     
@@ -686,7 +779,8 @@ def split_RNASeq_reads_bam_by_strand(mappedFile, library_protocol=None, create_s
     SUB = 'split_RNASeq_reads_bam_by_strand'
     
     base_dir = os.path.dirname(mappedFile) or '.'
-    (input_mappedFile_handle,input_mappedFile_prefix)  =get_apt_file_handle_for_mapped_file(mappedFile)
+    input_mappedFile_handle  = get_mappedFile_FH(mappedFile)
+    input_mappedFile_prefix  = get_mappedFile_prefix(mappedFile)
     log_file_name =  base_dir+'/'+input_mappedFile_prefix+'_strand_split.log'
     
     
