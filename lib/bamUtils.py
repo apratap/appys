@@ -653,7 +653,6 @@ def get_bamStats(bamFile,**kwargs):
     #stats that will be recorded
     bamStats = { 'bamFile': bamFile,
                  'reads' : 0,
-                 'seq_pairs' : 0,
                  'read1' : 0,
                  'read2' : 0,
                  'read2' : 0,
@@ -758,9 +757,7 @@ def get_bamStats(bamFile,**kwargs):
             fh.write(yaml.dump(bamStats, default_flow_style=False))
         print 'Wrote %s file' % bamStats_file
         return (bamStats)
-
-
-                
+              
 '''
 #check if the the pair is mapped on the same chromosome of other for one of the reads        
                     if read.is_read1:
