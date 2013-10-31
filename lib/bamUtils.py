@@ -48,8 +48,6 @@ def index_bam(bamFile):
             print '[%s]: Created index for %s' % (SUB,os.path.basename(bamFile))
 
 
-
-
 def name_sort_bam(bamFile,out_q=None):
     """
     Taking a bamFile as input
@@ -676,12 +674,13 @@ def get_bamStats(bamFile,**kwargs):
                  'secondary_mapped_read1' : 0,
                  'secondary_mapped_read2' : 0,
                  'unmapped_read1': 0,
-                 'unmapped_read2': 0
+                 'unmapped_read2': 0,
+                 'QC_failed' : 0,
+                 'PCR_optical_dups' : 0
                  }
     
     #stats to be saved with the following file name
     bamStats_file = get_mappedFile_prefix(bamFile) + '.bamStats'
-    
     #user supplied args if any
     force = kwargs.get('force',False)
     #check is pre-computed stats exist
@@ -697,44 +696,56 @@ def get_bamStats(bamFile,**kwargs):
         start = time.clock()
         loop_start = time.clock()
         for count,read in enumerate(bam_fh):
+            #counter
             if count % 1000000 == 0 and count > 0:
                 time_taken = time.clock() - start
                 total_time_taken = time.clock() - loop_start
                 print 'Processed 1,000,000 reads in %0.2f seconds total_reads: %d in %0.2f seconds' % (time_taken,count,total_time_taken)
                 start = time.clock()
             
+            #check QC failed reads
+            if read.is_qcfail:
+                bamStats['QC_failed'] += 1
+                
+            #PCR / Optical dups
+            if read.is_duplicate:
+                bamStats['PCR_optical_dups'] += 1
             
-            #check if unmapped reads
-            if read.is_unmapped:
-                bamStats['unmapped'] += 1
+            #check for multi mapped reads first up and keep a separate counter for them
+            if read.is_secondary:
+                bamStats['secondary_mapped'] += 1
                 if read.is_read1:
-                    bamStats['unmapped_read1'] += 1
+                    bamStats['secondary_mapped_read1'] += 1
                 elif read.is_read2:
-                    bamStats['unmapped_read2'] += 1
-                #count raw reads
+                    bamStats['secondary_mapped_read2'] += 1
+                # skip counting this read further
+                continue
+             
+            #if the read is primary mapped then count
+            else:
+                # count raw reads
                 bamStats['reads'] += 1
                 if read.is_read1:
                     bamStats['read1'] += 1
                 if read.is_read2:
                     bamStats['read2'] += 1
-                continue
-            else: 
-                #check for multi mapped reads first up and keep a separate counter for them
-                if read.is_secondary:
-                    bamStats['secondary_mapped'] += 1
+            
+                #check if unmapped reads
+                if read.is_unmapped:
+                    bamStats['unmapped'] += 1
                     if read.is_read1:
-                        bamStats['secondary_mapped_read1'] += 1
+                        bamStats['unmapped_read1'] += 1
                     elif read.is_read2:
-                        bamStats['secondary_mapped_read2'] += 1
-                    # skip counting this read further
-                    continue
+                        bamStats['unmapped_read2'] += 1
+                
+                #if read is mapped
                 else:
-                    bamStats['mapped'] += 1
-                    if read.is_read1:
-                        bamStats['mapped_read1'] += 1
-                    elif read.is_read2:
-                        bamStats['mapped_read2'] += 1
-                    
+                   bamStats['mapped'] += 1
+                   if read.is_read1:
+                       bamStats['mapped_read1'] += 1
+                   elif read.is_read2:
+                       bamStats['mapped_read2'] += 1
+        
         #save the stats in a YAML format
         with open(bamStats_file,'w') as fh:
             fh.write(yaml.dump(bamStats, default_flow_style=False))
