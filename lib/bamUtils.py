@@ -171,10 +171,8 @@ def sam_to_bam(samFile,fai_file=None):
     
     
 def bam_to_bedGraph(bamFile,chrSizeFile=None):
-    
     SUB='bam_to_bedGraph'
     
-
     base_path = os.path.dirname(bamFile) or '.'
     bamFile_name = os.path.basename(bamFile)
     out_bedgraphFile = base_path + '/' + bamFile_name.replace('.bam','') + '.bedgraph'
@@ -196,8 +194,8 @@ def bam_to_bedGraph(bamFile,chrSizeFile=None):
 
 
 def create_detailed_insert_size_plot(bamFile):
-    
     SUB='create_insert_size_plot'
+    
     namesorted_bamFile =  name_sort_bam(bamFile)
     base_path = os.path.dirname(namesorted_bamFile) or '.'
     bamFile_name = os.path.basename(namesorted_bamFile)
@@ -206,7 +204,6 @@ def create_detailed_insert_size_plot(bamFile):
     
     #get the dual logger
     logging = utils._get_logger(out_insertSize_logFile,logger_name = __name__)
-    
     bamfile_handle = get_mappedFile_FH(namesorted_bamFile)
     bamfile_prefix = get_mappedFile_prefix(namesorted_bamFile)
 
@@ -310,32 +307,25 @@ def generate_read_count_per_chr_per_bam(bam_files):
         if os.path.exists(out_file):
             print '[%s]: Expected output %s already present no processing required' % (SUB,file_name)
             continue
-        
         else:
             #else open the file
             out_fh = open(out_file,'w')
-            
             print '[%s]: Processing %s' % (SUB,file_name)
             bam_file_fh = pysam.Samfile(bam_file,'rb')
-            
             hash = AutoVivification()
-            
             for read in bam_file_fh:
                 if read.is_unmapped:
                     continue
                 else:
                     reference = read.tid
                     strand    = get_strand_for_firstStrand_RNA_Seq_read(read)
-                
                 if hash[reference][strand]:
                      hash[reference][strand] += 1
                 else:
                     hash[reference][strand] = 1
-        
             references = bam_file_fh.references
             lengths =   bam_file_fh.lengths
         
-            
             ref_to_len_dict = {}
             #creating a reference to length dict
             for (ref,len) in itertools.izip(references,lengths):
@@ -663,10 +653,13 @@ def get_bamStats(bamFile,**kwargs):
     #stats that will be recorded
     bamStats = { 'bamFile': bamFile,
                  'reads' : 0,
+                 'seq_pairs' : 0,
                  'read1' : 0,
                  'read2' : 0,
                  'read2' : 0,
                  'mapped' : 0,
+                 'mapped_pairs' : 0,
+                 'chimeric_mapped' : 0,
                  'secondary_mapped' : 0,
                  'unmapped' : 0,
                  'mapped_read1' : 0,
@@ -679,10 +672,14 @@ def get_bamStats(bamFile,**kwargs):
                  'PCR_optical_dups' : 0
                  }
     
-    #stats to be saved with the following file name
-    bamStats_file = get_mappedFile_prefix(bamFile) + '.bamStats'
+    
     #user supplied args if any
     force = kwargs.get('force',False)
+    output_dir = kwargs.get('output_dir',False)
+    
+    #stats to be saved with the following file name
+    bamStats_file = get_mappedFile_prefix(bamFile,output_dir=output_dir) + '.bamStats'
+    
     #check is pre-computed stats exist
     if os.path.exists(bamStats_file) and force == False:
         #read the stats from the file and return
@@ -703,14 +700,6 @@ def get_bamStats(bamFile,**kwargs):
                 print 'Processed 1,000,000 reads in %0.2f seconds total_reads: %d in %0.2f seconds' % (time_taken,count,total_time_taken)
                 start = time.clock()
             
-            #check QC failed reads
-            if read.is_qcfail:
-                bamStats['QC_failed'] += 1
-                
-            #PCR / Optical dups
-            if read.is_duplicate:
-                bamStats['PCR_optical_dups'] += 1
-            
             #check for multi mapped reads first up and keep a separate counter for them
             if read.is_secondary:
                 bamStats['secondary_mapped'] += 1
@@ -720,8 +709,7 @@ def get_bamStats(bamFile,**kwargs):
                     bamStats['secondary_mapped_read2'] += 1
                 # skip counting this read further
                 continue
-             
-            #if the read is primary mapped then count
+            #get the raw read count
             else:
                 # count raw reads
                 bamStats['reads'] += 1
@@ -729,22 +717,41 @@ def get_bamStats(bamFile,**kwargs):
                     bamStats['read1'] += 1
                 if read.is_read2:
                     bamStats['read2'] += 1
+    
+            #check QC failed reads
+            if read.is_qcfail:
+                bamStats['QC_failed'] += 1
+                continue
             
-                #check if unmapped reads
-                if read.is_unmapped:
-                    bamStats['unmapped'] += 1
-                    if read.is_read1:
-                        bamStats['unmapped_read1'] += 1
-                    elif read.is_read2:
-                        bamStats['unmapped_read2'] += 1
+            #PCR / Optical dups
+            if read.is_duplicate:
+                bamStats['PCR_optical_dups'] += 1
                 
-                #if read is mapped
-                else:
-                   bamStats['mapped'] += 1
-                   if read.is_read1:
-                       bamStats['mapped_read1'] += 1
-                   elif read.is_read2:
-                       bamStats['mapped_read2'] += 1
+            #check if unmapped reads
+            if read.is_unmapped:
+                bamStats['unmapped'] += 1
+                if read.is_read1:
+                    bamStats['unmapped_read1'] += 1
+                elif read.is_read2:
+                    bamStats['unmapped_read2'] += 1
+            #if read is mapped
+            else:
+               bamStats['mapped'] += 1
+               #chimeric read pairs
+               if read.tid != read.rnext:
+                   bamStats['chimeric_mapped'] += 1
+               if read.is_read1:
+                   bamStats['mapped_read1'] += 1
+               elif read.is_read2:
+                   bamStats['mapped_read2'] += 1
+            
+            
+            #check if read is part of a properly mapped pair
+            if read.is_proper_pair:
+                bamStats['mapped_pairs'] += 1
+                    
+            
+             
         
         #save the stats in a YAML format
         with open(bamStats_file,'w') as fh:
@@ -753,13 +760,37 @@ def get_bamStats(bamFile,**kwargs):
         return (bamStats)
 
 
-def get_mappedFile_prefix(mapped_file,mode='r'):
+                
+'''
+#check if the the pair is mapped on the same chromosome of other for one of the reads        
+                    if read.is_read1:
+                        if read.is_proper_pair:
+                            bamStats['mapped_pairs'] += 1
+                        else:
+                            bamStats['mapped_pairs'] += 1
+                            bamStats['chimeric_mapped_pairs'] += 1
+            
+    
+                    if read.is_read1 and not read.is_unmapped:
+                        if read.tid == read.rnext:
+                            bamStats['mapped_pairs'] += 1
+                        else:
+                            bamStats['mapped_pairs'] += 1
+                            bamStats['chimeric_mapped_pairs'] += 1
+'''
+
+def get_mappedFile_prefix(mapped_file,mode='r',output_dir=None):
     """
     get prefix for a sam/bam file
+    output_dir : is used to append that dir as a dir name behind the file prefix
+               : useful to direct the bam/sam file to a diff direc
     """
     SUB='get_mappedFile_prefix'
     
-    dirname = os.path.dirname(mapped_file)
+    if output_dir:
+        dirname = output_dir
+    else:
+        dirname = os.path.dirname(mapped_file)
     if dirname == "": ##fix when script is run from the same dir where the file is
         dirname = '.'
     if mapped_file.endswith('.bam'):
@@ -1027,8 +1058,6 @@ def get_readPair_type(read1,read2):
         return (False)
     
     return True
-
-
 
 
 
