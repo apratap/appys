@@ -55,9 +55,9 @@ def main():
     
     #create output dir if not exists
     if user_args.output_dir:
-        output_dir = os.path.abspath(user_args.output_dir)
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        user_args.output_dir = os.path.abspath(user_args.output_dir)
+        if not os.path.exists(user_args.output_dir):
+            os.makedirs(user_args.output_dir)
         
     
     
@@ -66,7 +66,7 @@ def main():
         func_to_run = translator_userArg_to_funcName.get(run_func,None)
         func_to_run = eval('bamUtils.%s' % func_to_run)
         #create a partial func
-        func_to_run = functools.partial(func_to_run,force=user_args.force_run,output_dir=output_dir)
+        func_to_run = functools.partial(func_to_run,force=user_args.force_run,output_dir=user_args.output_dir)
         result = parallel.parallelize_func_singe_input(func_to_run,user_args.bam_files,num_cores=user_args.num_cores)
     
 
