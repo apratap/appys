@@ -20,6 +20,7 @@ import pickle
 import tempfile
 import time
 import re
+import yaml
 
 
 
@@ -435,31 +436,41 @@ def get_mapped_read_count(bam, force=False):
     return readcount
 
 
-def bam_to_bigWig(bamFile,scale=False):
+def bam_to_bigWig(bamFile,scale=False,**kwargs):
     """
     For a given bam file
     create a bigWig File
     """
-    base_path = os.path.dirname(bamFile) or '.'
-    bamFile_name = os.path.basename(bamFile)
-    out_bigWig_file = base_path + '/' + bamFile_name.replace('.bam','') + '.bw'
+    #user supplied args if any
+    force = kwargs.get('force',False)
+    output_dir = kwargs.get('output_dir',False)
+    
+    #output bigWig filename
+    out_bigWig_file = get_mappedFile_prefix(bamFile,output_dir=output_dir)  + '.bw'
     
     #constructing genome size file on the fly from bam file
     bam_fh  = get_mappedFile_FH(bamFile)
     bam_prefix = get_mappedFile_prefix(bamFile)
     
     temp_genome_file = tempfile.NamedTemporaryFile(mode='w+t',suffix='.tmp', delete=False) #when delete is True file is deleted as soon as it closed
-    [temp_genome_file.write('%s\t%s\n' % (chr,len)) for chr,len in itertools.izip(bam_fh.references,bam_fh.lengths) ]
+    [ temp_genome_file.write('%s\t%s\n' % (chr,len)) for chr,len in itertools.izip(bam_fh.references,bam_fh.lengths) ]
     temp_genome_file.close()
 
     #scale the read counts if asked
     if scale:
         readcount = get_mapped_read_count(bamFile)
-        _scale = 1 / (readcount / 1e6)
-        
+        factor = 1 / (readcount / 1e6)
+    else:
+        factor = 1
     
+    
+    #bedgraph option line
+    bedgraph_line = 'track type=bedGraph name=%s color=%s altColor=%s' % (bam_prefix,'43,131,186','171,121,164') 
+    
+    #find the genome coverage
     bam_bedtool = pybedtools.BedTool(bamFile)
-    bedGraph_file = bam_bedtool.genome_coverage(bga=True,g=temp_genome_file.name,scale=_scale)
+    bedGraph_file = bam_bedtool.genome_coverage(bga=True,g=temp_genome_file.name,scale=factor,trackopts=bedgraph_line)
+    
     
     #convert to bigwig using the UCSC script
     #should be in the path
@@ -470,7 +481,8 @@ def bam_to_bigWig(bamFile,scale=False):
     if not stderr:
         print 'Created a bigWig file %s for %s' % (os.path.basename(out_bigWig_file),
                                                    os.path.basename(bamFile))
-
+    else:
+        print stderr
 
 
 def plot_bamCoverage(bamFile,min_coverage=2):
@@ -641,8 +653,7 @@ def get_mappedFile_FH(mapped_file,mode='r'):
 
 #bam summary
 
-import collections
-import yaml
+
 
 
 def get_bamStats(bamFile,**kwargs):
