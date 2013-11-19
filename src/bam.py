@@ -70,12 +70,13 @@ def main():
         result = parallel.parallelize_func_singe_input(func_to_run,user_args.bam_files,num_cores=user_args.num_cores)
     
 
-    
+    '''
     #TO BE MADE MORE ROBUST
     #will error if there is any func arg other than 'getStats'
     df = pandas.DataFrame.from_dict(result)
     df = df.set_index(['bamFile'])
     print df
+    '''
     
 if __name__ == "__main__":
     main()
