@@ -4,6 +4,9 @@
 import tempfile
 import synapseclient
 import os
+import pandas as pd
+import numpy as np
+
 
 #modified from  Larsson's code
 #https://github.com/larssono/Analysis_helpers/blob/master/synapseHelpers.py
@@ -14,7 +17,7 @@ def query2df(queryContent, filterSynapseFields=True):
     - `queryContent`: content returned from query
     - `filterSynapseFields`: Removes Synapse properties of the entity returned with "select * ..."
     """
-    import pandas as pd
+
     queryContent = pd.DataFrame(queryContent['results'])
     #Remove the unecessary lists and 'entity' in names  (this should be fixed on Synapse!)
     for key in queryContent.keys():
@@ -28,8 +31,19 @@ def query2df(queryContent, filterSynapseFields=True):
         		temp_list.append(item) 
         queryContent[newkey] = pd.Series(temp_list)
         del queryContent[key]
+
+    #replace the prefix from the concreteType column
+    queryContent.concreteType = queryContent.concreteType.map(lambda x: x.replace('org.sagebionetworks.repo.model.',''))
+
     return queryContent
 
+
+def getUserProfiles(userIds, syn):
+    if not isinstance(userIds, (np.ndarray, list)):
+        userIds = [userIds]
+    profiles = [ syn.getUserProfile(userId) for userId in userIds ]
+    profiles = pd.DataFrame.from_dict(profiles)
+    return profiles
 
 
 def push_DF_to_synLeaderboard(df, wikiEntity=None, subPageId=None, syn=None, prefixText=None, suffixText=None):
@@ -46,7 +60,7 @@ def push_DF_to_synLeaderboard(df, wikiEntity=None, subPageId=None, syn=None, pre
     
     for row in df.iterrows():
         values = row[1].values
-        wikiText += "|%s|\n" % ('|'.join(map(str,values)))
+        wikiText += "|%s|\n" % ('|'.join(map(unicode,values)))
     if suffixText:
         wikiText += "%s\n" % suffixText
 
@@ -74,4 +88,37 @@ def pushToSynapse(syn, value, parentId, fileName = None):
     
     syn_temp_file = syn.store(synapseclient.File(temp_file.name, parentId=parentId, name=fileName))
     return syn_temp_file.id
+
+
+def get_ProjectId_of_entity(syn,entityId):
+    try:
+        entity_hierarchy = syn.restGET('/entity/'+entityId+'/path/')['path']
+        projectEntity = [e['id'] for e in entity_hierarchy if e.get('type', None) == 'org.sagebionetworks.repo.model.Project']
+        return projectEntity[0]
+    except:
+        return 'None'
+
+def getDescendants_synids(parent_synid,syn):
+    '''
+    given a synid find all its descendants(children) synids
+    '''
+    entity_hierarchy = syn.restGET('/entity/'+parent_synid+'/descendants/')
+    child_synids = [item['id'] for item in entity_hierarchy['idList'] ]
+    return child_synids
+
+
+def wikify_string(x):
+    '''
+    function to replace _ with \_ and synxxx with $$synxxx$$
+    used to correctly render the leaderboard
+    '''
+    x = x.replace('_','\_')
+    if x.find('syn') != -1:
+        x = '$$%s$$' % x
+    return x 
+
+
+
+
+
 
